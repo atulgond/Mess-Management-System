@@ -19,7 +19,15 @@ DEFAULT_HEADERS = {
 
 
 class Client:
-    def __init__(self, min_interval: float = 0.0, timeout: float = 10.0, retries: int = 2):
+    def __init__(
+        self,
+        min_interval: float = 0.0,
+        timeout: float = 10.0,
+        retries: int = 2,
+        *,
+        clock=time.monotonic,
+        sleep=time.sleep,
+    ):
         self.session = requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
         adapter = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=32)
@@ -28,16 +36,24 @@ class Client:
         self.min_interval = min_interval  # seconds between requests to the same host
         self.timeout = timeout
         self.retries = retries
+        self._clock = clock
+        self._sleep = sleep
         self._last: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def _throttle(self, url: str) -> None:
         host = urlparse(url).netloc
+        throttle_key = host
+        interval = self.min_interval
+        if "/stores/zon" in url:
+            throttle_key = f"{host}/zon"
+            interval = max(interval, 1.0)
+
         with self._lock:
-            wait = self._last.get(host, 0) + self.min_interval - time.monotonic()
+            wait = self._last.get(throttle_key, 0) + interval - self._clock()
             if wait > 0:
-                time.sleep(wait)
-            self._last[host] = time.monotonic()
+                self._sleep(wait)
+            self._last[throttle_key] = self._clock()
 
     def request(self, method: str, url: str, **kw) -> requests.Response:
         kw.setdefault("timeout", self.timeout)
@@ -48,10 +64,10 @@ class Client:
                 r = self.session.request(method, url, **kw)
             except requests.RequestException as e:  # network blip
                 last_exc = e
-                time.sleep(0.5 * (attempt + 1))
+                self._sleep(0.5 * (attempt + 1))
                 continue
             if r.status_code in (429, 503) and attempt < self.retries:
-                time.sleep(float(r.headers.get("Retry-After", "1")))
+                self._sleep(float(r.headers.get("Retry-After", "1")))
                 continue
             return r
         if last_exc:

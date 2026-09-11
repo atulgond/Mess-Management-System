@@ -34,11 +34,19 @@ def parse_money(text: str, default_currency: Optional[str] = None) -> tuple[Opti
     if text is None:
         return None, default_currency
     currency = detect_currency(text, default_currency)
-    digits = re.sub(r"[^\d.]", "", text)
-    if not digits or digits == ".":
+    num_str = re.sub(r"[^\d.,]", "", text)
+    if not num_str or num_str in (".", ","):
         return None, currency
+        
+    if re.search(r",\d{1,2}$", num_str):
+        num_str = num_str.replace(".", "").replace(",", ".")
+    elif re.search(r"\.\d{1,2}$", num_str):
+        num_str = num_str.replace(",", "")
+    else:
+        num_str = num_str.replace(",", "").replace(".", "")
+        
     try:
-        amount = float(digits)
+        amount = float(num_str)
     except ValueError:
         return None, currency
     return int(round(amount * 100)), currency

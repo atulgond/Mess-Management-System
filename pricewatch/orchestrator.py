@@ -17,22 +17,23 @@ log = logging.getLogger("pricewatch")
 
 def scan_store(client: Client, base_url: str, store: str, cfg: dict, workers: int = 4) -> list[Observation]:
     index_url = base_url + cfg["index"]
-    urls, notes = scout.discover(client, store, index_url)
+    items, notes = scout.discover_items(client, store, index_url)
     for n in notes:
         log.warning("%s: %s", store, n)
-    if not urls:
+    if not items:
         return []
 
-    def one(url: str) -> Observation:
-        r = client.get(url)
-        obs = extractor.extract(client, store, cfg["adapter"], url, r.text)
+    def one(item: scout.ProductLink) -> Observation:
+        r = client.get(item.url)
+        context = {"listing_price_cents": item.listing_price_cents} if item.listing_price_cents is not None else {}
+        obs = extractor.extract(client, store, cfg["adapter"], item.url, r.text, **context)
         if r.status_code != 200:
             obs.notes.append(f"HTTP {r.status_code}")
         return obs
 
     out: list[Observation] = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(one, u): u for u in urls}
+        futs = {ex.submit(one, item): item.url for item in items}
         for f in as_completed(futs):
             try:
                 out.append(f.result())

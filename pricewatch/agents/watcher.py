@@ -28,7 +28,7 @@ def rule_drop_pct(prev: Observation, cur: Observation, pct: float) -> Alert | No
         return None
     if cur.price_cents >= prev.price_cents:
         return None
-    drop = (prev.price_cents - cur.price_cents) / cur.price_cents * 100
+    drop = (prev.price_cents - cur.price_cents) / prev.price_cents * 100
     if drop >= pct:
         return Alert(store=cur.store, product_id=cur.product_id, rule="drop_pct",
                      message=f"{cur.name or cur.product_id}: {prev.price_cents} -> {cur.price_cents} ({drop:.1f}% drop)",

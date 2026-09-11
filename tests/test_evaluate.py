@@ -33,9 +33,9 @@ def test_eval_harness(tmp_path):
     report = evaluate.run(p, snapshots_dir, labels_path, out_dir)
     
     assert report["n"] == 3
-    assert report["errors"] == 2
-    assert report["error_details"]["timeouts"] == 1
-    assert report["error_details"]["json_errors"] == 1
+    assert report["errors"]["timeout"] == 1
+    assert report["errors"]["malformed_output"] == 1
+    assert report["errors"]["provider_error"] == 0
     
     # 1/3 correct
     assert report["overall"]["price_exact"] == 1.0 / 3.0

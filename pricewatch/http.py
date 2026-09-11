@@ -70,19 +70,23 @@ class Client:
                 self._sleep(0.5 * (attempt + 1))
                 continue
             
-            if r.status_code == 503 and "Checking your browser before accessing Shield" in r.text and attempt < self.retries:
+            if r.status_code == 503 and attempt < self.retries:
                 import hashlib
                 from bs4 import BeautifulSoup
                 from urllib.parse import urljoin
                 soup = BeautifulSoup(r.text, "html.parser")
-                cf = soup.find(id="cf-c")
-                if cf and "data-s" in cf.attrs and "data-p" in cf.attrs:
+                cf = soup.find(attrs={"data-s": True, "data-p": True})
+                if cf:
                     s = cf["data-s"]
                     p = cf["data-p"]
                     a = hashlib.sha256(f"{s}|{p}".encode()).hexdigest()[:16]
                     
                     self._sleep(float(r.headers.get("Retry-After", "1")))
-                    challenge_url = urljoin(url, "/stores/shield/challenge")
+                    action = cf.get("action")
+                    if cf.name == "form" and action:
+                        challenge_url = urljoin(url, action)
+                    else:
+                        challenge_url = urljoin(url, "/stores/shield/challenge")
                     post_r = self.session.post(challenge_url, json={"s": s, "p": p, "a": a})
                     continue
 

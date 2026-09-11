@@ -22,13 +22,16 @@
       "pack_size": 0.8444444444444444
     }
   },
-  "errors": 0,
-  "error_details": {
-    "timeouts": 0,
-    "exceptions": 0,
-    "json_errors": 0
+  "errors": {
+    "timeout": 0,
+    "malformed_output": 0,
+    "provider_error": 0
   },
-  "cost": 0.0,
+  "cost": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "usd_estimate": 0.0
+  },
   "latency_ms": {
     "p50": 0,
     "p95": 0

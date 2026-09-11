@@ -60,11 +60,11 @@ def test_extract_flux_success():
     assert obs.product_id == "FLX-TEST"
     assert obs.name == "Test Item"
     assert obs.pack_size == 2
-    assert obs.price_cents == 9950
+    assert obs.price_cents is None
     assert obs.currency == "USD"
     assert obs.availability == "in_stock"
     assert "stale price" in obs.notes
-    assert obs.unit_price_cents == 4975
+    assert obs.unit_price_cents is None
     
     assert len(client.calls) == 2
     assert client.calls[0][1] == "http://example.com/stores/flux/bundle.js"
@@ -110,3 +110,36 @@ def test_extract_flux_minor_unit():
     assert obs.currency == "GBP"
     assert obs.availability == "out_of_stock"
     assert "stale price" not in obs.notes
+
+def test_extract_flux_major_unit_float_precision():
+    _FLUX_SALT_CACHE.clear()
+    html = """<html>
+        <meta name="flux-build" content="b123">
+        <body>
+            <div class="pdp" data-sku="FLX-MAJOR"><h1>Test Item</h1></div>
+        </body>
+    </html>"""
+    
+    class MajorClient(MockClient):
+        def post(self, url, **kw):
+            return MockResponse(200, json_data={
+                "data": {
+                    "product": {
+                        "sku": "FLX-MAJOR",
+                        "title": "Test Item",
+                        "offer": {
+                            "amount": 1.13,
+                            "unit": "major",
+                            "currency": "USD",
+                            "stock": "IN_STOCK",
+                            "stale": False
+                        }
+                    }
+                }
+            })
+            
+    client = MajorClient()
+    obs = extract_flux(client, "flux", "http://example.com/stores/flux/item/FLX-MAJOR", html)
+    assert obs.price_cents == 113
+    assert obs.currency == "USD"
+

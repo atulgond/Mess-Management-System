@@ -1,6 +1,6 @@
 [
   {
     "id": "nk-031",
-    "reason": "Expected price 1267000 NOK but HTML states 12 760,00 (1276000 NOK)"
+    "reason": "Expected major price 12670 is completely mathematically absent from the raw HTML text."
   }
 ]

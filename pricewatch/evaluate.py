@@ -36,13 +36,17 @@ def run(provider: Provider, snapshots_dir: str | Path, labels_path: str | Path, 
 
     results = []
     store_metrics: dict[str, dict[str, Any]] = {}
-    errors = {"timeouts": 0, "exceptions": 0, "json_errors": 0}
+    # Update errors to exact keys expected by the schema
+    errors = {"timeout": 0, "malformed_output": 0, "provider_error": 0}
     latencies = []
     
     baseline_correct = 0
     client = Client()
 
     t0 = time.time()
+    
+    label_issues = []
+    
     for snap_id, row in labels.items():
         html = (snapshots_dir / row["file"]).read_text()
         store = row["store"]
@@ -54,7 +58,6 @@ def run(provider: Provider, snapshots_dir: str | Path, labels_path: str | Path, 
             
         # Baseline extraction (rule-based fallback)
         try:
-            # We don't have adapter for nordkart/bazaario, so this will usually fail.
             base_obs = extractor.extract(client, store, store, url, html)
             if base_obs.price_cents == exp.get("price_cents"):
                 baseline_correct += 1
@@ -75,7 +78,6 @@ def run(provider: Provider, snapshots_dir: str | Path, labels_path: str | Path, 
             obs = extract_with_llm(provider, store, url, html)
             lat = (time.time() - t_start) * 1000
             
-            # Cache if it's not a provider failure
             if obs.price_cents is not None or "llm extraction failed" not in "".join(obs.notes or []):
                 c_file.write_text(json.dumps(obs.to_dict()))
                 latencies.append(lat)
@@ -84,13 +86,13 @@ def run(provider: Provider, snapshots_dir: str | Path, labels_path: str | Path, 
         notes_str = "".join(obs.notes or [])
         is_error = False
         if "ProviderTimeout" in notes_str:
-            errors["timeouts"] += 1
+            errors["timeout"] += 1
             is_error = True
         elif "JSONDecodeError" in notes_str:
-            errors["json_errors"] += 1
+            errors["malformed_output"] += 1
             is_error = True
         elif "ProviderError" in notes_str:
-            errors["exceptions"] += 1
+            errors["provider_error"] += 1
             is_error = True
 
         price_ok = obs.price_cents == exp.get("price_cents")
@@ -98,9 +100,15 @@ def run(provider: Provider, snapshots_dir: str | Path, labels_path: str | Path, 
         avail_ok = obs.availability == exp.get("availability")
         pack_ok = obs.pack_size == exp.get("pack_size")
         
-        # Any error counts as a wrong answer for accuracy
         if is_error:
             price_ok = currency_ok = avail_ok = pack_ok = False
+            
+        import re
+        if not price_ok and exp.get("price_cents") is not None:
+            major = str(exp.get("price_cents"))[:-2]
+            html_clean = re.sub(r'[\s,\.\xa0]', '', html)
+            if major not in html_clean:
+                label_issues.append({"id": snap_id, "reason": f"Expected major price {major} is completely mathematically absent from the raw HTML text."})
 
         results.append({
             "id": snap_id,
@@ -117,10 +125,8 @@ def run(provider: Provider, snapshots_dir: str | Path, labels_path: str | Path, 
         store_metrics[store]["avail_ok"] += int(avail_ok)
         store_metrics[store]["pack_ok"] += int(pack_ok)
 
-    # Calculate overall metrics
     n = len(results)
     
-    # Per-store metrics normalized
     per_store = {}
     for s, m in store_metrics.items():
         sn = m["n"]
@@ -142,9 +148,8 @@ def run(provider: Provider, snapshots_dir: str | Path, labels_path: str | Path, 
             "pack_size": _accuracy(sum(r["pack_ok"] for r in results), n),
         },
         "per_store": per_store,
-        "errors": sum(errors.values()),
-        "error_details": errors,
-        "cost": 0.0, # Track token cost if provider supported it natively
+        "errors": errors,
+        "cost": {"input_tokens": 0, "output_tokens": 0, "usd_estimate": 0.0},
         "latency_ms": {
             "p50": round(statistics.median(latencies)) if latencies else 0,
             "p95": round(statistics.quantiles(latencies, n=20)[18]) if len(latencies) >= 20 else (round(max(latencies)) if latencies else 0)
@@ -156,11 +161,6 @@ def run(provider: Provider, snapshots_dir: str | Path, labels_path: str | Path, 
     }
     
     (out_dir / "report.json").write_text(json.dumps(report, indent=2))
-    
-    # Label issues mapping
-    label_issues = [
-        {"id": "nk-031", "reason": "Expected price 1267000 NOK but HTML states 12 760,00 (1276000 NOK)"}
-    ]
     (out_dir / "label_issues.json").write_text(json.dumps(label_issues, indent=2))
     
     return report

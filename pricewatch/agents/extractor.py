@@ -257,7 +257,7 @@ def extract_flux(client: Client, store: str, url: str, html: str) -> Observation
         bundle_url = urljoin(url, "/stores/flux/bundle.js")
         r_bundle = client.get(bundle_url)
         if r_bundle.ok:
-            m = re.search(r'_0x1=\[(".*?")\]', r_bundle.text)
+            m = re.search(r'=\s*\[(".*?")\]', r_bundle.text)
             if m:
                 parts = re.findall(r'"([^"]+)"', m.group(1))
                 salt = "".join(parts)
@@ -297,9 +297,9 @@ def extract_flux(client: Client, store: str, url: str, html: str) -> Observation
         stock = offer.get("stock")
         stale = offer.get("stale")
         
-        if amount is not None:
+        if amount is not None and not stale:
             amount_val = float(amount)
-            price_cents = int(amount_val) if unit == "minor" else int(amount_val * 100)
+            price_cents = int(amount_val) if str(unit).lower() == "minor" else round(amount_val * 100)
         else:
             price_cents = None
             

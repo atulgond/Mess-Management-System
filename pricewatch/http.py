@@ -48,6 +48,9 @@ class Client:
         if "/stores/zon" in url:
             throttle_key = f"{host}/zon"
             interval = max(interval, 1.0)
+        elif "/stores/shield" in url:
+            throttle_key = f"{host}/shield"
+            interval = max(interval, 1.0)
 
         with self._lock:
             wait = self._last.get(throttle_key, 0) + interval - self._clock()
@@ -66,6 +69,23 @@ class Client:
                 last_exc = e
                 self._sleep(0.5 * (attempt + 1))
                 continue
+            
+            if r.status_code == 503 and "Checking your browser before accessing Shield" in r.text and attempt < self.retries:
+                import hashlib
+                from bs4 import BeautifulSoup
+                from urllib.parse import urljoin
+                soup = BeautifulSoup(r.text, "html.parser")
+                cf = soup.find(id="cf-c")
+                if cf and "data-s" in cf.attrs and "data-p" in cf.attrs:
+                    s = cf["data-s"]
+                    p = cf["data-p"]
+                    a = hashlib.sha256(f"{s}|{p}".encode()).hexdigest()[:16]
+                    
+                    self._sleep(float(r.headers.get("Retry-After", "1")))
+                    challenge_url = urljoin(url, "/stores/shield/challenge")
+                    post_r = self.session.post(challenge_url, json={"s": s, "p": p, "a": a})
+                    continue
+
             if r.status_code in (429, 503) and attempt < self.retries:
                 self._sleep(float(r.headers.get("Retry-After", "1")))
                 continue

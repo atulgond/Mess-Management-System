@@ -8,6 +8,7 @@ Adapters are registered by name; `stores.yaml` maps each store to an adapter.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from typing import Callable, Optional
@@ -20,6 +21,7 @@ from ..models import Observation
 from .normalizer import parse_money, unit_price
 
 ADAPTERS: dict[str, Callable[..., Observation]] = {}
+_FLUX_SALT_CACHE: dict[str, str] = {}
 
 
 def adapter(name: str):
@@ -55,15 +57,37 @@ def extract_corner(client: Client, store: str, url: str, html: str) -> Observati
 @adapter("maple")
 def extract_maple(client: Client, store: str, url: str, html: str) -> Observation:
     soup = BeautifulSoup(html, "html.parser")
-    name = soup.select_one(".product__title").get_text(strip=True)
+    title_el = soup.select_one(".product__title")
+    name = title_el.get_text(strip=True) if title_el else ""
+    
+    pack_match = re.search(r"Pack of (\d+)", name, re.I)
+    pack = int(pack_match.group(1)) if pack_match else 1
+    name_clean = re.sub(r"\s*\(?Pack of \d+\)?", "", name, flags=re.I).strip()
+
     price_el = soup.select_one(".price--sale") or soup.select_one(".price .price")
-    price_cents, currency = parse_money(price_el.get_text(" ", strip=True), "EUR") if price_el else (None, "EUR")
+    price_text = price_el.get_text(" ", strip=True) if price_el else ""
+    price_cents, currency = parse_money(price_text, "EUR") if price_text else (None, "EUR")
+    
+    if price_cents is None:
+        select = soup.find("select", {"name": "variant"})
+        if select:
+            for opt in select.find_all("option"):
+                opt_text = opt.get_text()
+                if "—" in opt_text:
+                    fallback_text = opt_text.split("—")[-1]
+                    price_cents, c = parse_money(fallback_text, currency or "EUR")
+                    if price_cents is not None:
+                        currency = c
+                        break
+
     compare_el = soup.select_one(".price--compare")
     compare, _ = parse_money(compare_el.get_text(" ", strip=True), currency) if compare_el else (None, None)
     avail = "out_of_stock" if "Sold out" in soup.get_text() else "in_stock"
     return Observation(
-        store=store, product_id=_pid_from_url(url), url=url, name=name,
-        price_cents=price_cents, currency=currency or "EUR", compare_at_cents=compare, availability=avail,
+        store=store, product_id=_pid_from_url(url), url=url, name=name_clean,
+        price_cents=price_cents, currency=currency or "EUR", compare_at_cents=compare, 
+        availability=avail, pack_size=pack,
+        unit_price_cents=unit_price(price_cents, pack) if price_cents is not None else None,
     )
 
 
@@ -183,16 +207,122 @@ def extract_zon(
 # --------------------------------------------------------------------------- levels 4-5
 @adapter("shield")
 def extract_shield(client: Client, store: str, url: str, html: str) -> Observation:
-    # TODO: Shield fronts every page with a challenge and rate limit. See tasks/README.
-    return Observation(store=store, product_id=_pid_from_url(url), url=url, name="", price_cents=None,
-                       currency="GBP", notes=["shield adapter not implemented"])
+    m = re.search(r"window\.__STATE__\s*=\s*(\{.*?\});", html)
+    if not m:
+        return Observation(store=store, product_id=_pid_from_url(url), url=url, name="", price_cents=None,
+                           currency="GBP", notes=["no state found"])
+    
+    state = json.loads(m.group(1))
+    product = state.get("product", {})
+    offer = product.get("offer", {})
+    
+    name = product.get("title", "")
+    price_cents = offer.get("amount")
+    compare_at_cents = offer.get("was")
+    currency = offer.get("currency", "GBP")
+    avail = "in_stock" if offer.get("stock") == "IN_STOCK" else "out_of_stock"
+    
+    pack_match = re.search(r"Pack of (\d+)", name, re.I)
+    pack = int(pack_match.group(1)) if pack_match else 1
+    
+    return Observation(
+        store=store, product_id=product.get("id") or _pid_from_url(url), url=url, 
+        name=re.sub(r"\s*\(Pack of \d+\)", "", name, flags=re.I),
+        price_cents=price_cents, currency=currency, compare_at_cents=compare_at_cents, 
+        availability=avail, pack_size=pack,
+        unit_price_cents=unit_price(price_cents, pack) if price_cents is not None else None,
+    )
 
 
 @adapter("flux")
 def extract_flux(client: Client, store: str, url: str, html: str) -> Observation:
-    # TODO: Flux renders prices client-side from a signed API. See tasks/README.
-    return Observation(store=store, product_id=_pid_from_url(url), url=url, name="", price_cents=None,
-                       currency="USD", notes=["flux adapter not implemented"])
+    soup = BeautifulSoup(html, "html.parser")
+    
+    meta = soup.find("meta", {"name": "flux-build"})
+    if not meta:
+        return Observation(store=store, product_id=_pid_from_url(url), url=url, name="", price_cents=None,
+                           currency="USD", notes=["no flux-build meta found"])
+    build_id = meta.get("content", "")
+    
+    sku = _pid_from_url(url)
+    pdp = soup.find("div", {"class": "pdp"})
+    if pdp and pdp.get("data-sku"):
+        sku = pdp.get("data-sku")
+        
+    title_el = soup.find("h1")
+    name = title_el.get_text(strip=True) if title_el else ""
+
+    salt = _FLUX_SALT_CACHE.get(build_id)
+    if not salt:
+        bundle_url = urljoin(url, "/stores/flux/bundle.js")
+        r_bundle = client.get(bundle_url)
+        if r_bundle.ok:
+            m = re.search(r'_0x1=\[(".*?")\]', r_bundle.text)
+            if m:
+                parts = re.findall(r'"([^"]+)"', m.group(1))
+                salt = "".join(parts)
+                _FLUX_SALT_CACHE[build_id] = salt
+
+    if not salt:
+        return Observation(store=store, product_id=sku, url=url, name=name, price_cents=None,
+                           currency="USD", notes=["failed to extract salt"])
+
+    sig = hashlib.sha256(f"{salt}|{sku}".encode()).hexdigest()[:24]
+
+    gql_url = urljoin(url, "/stores/flux/api/graphql")
+    headers = {
+        "content-type": "application/json",
+        "x-flux-sig": sig,
+        "x-flux-build": build_id
+    }
+    payload = {
+        "query": "query($sku:String!){product(sku:$sku){sku title offer{amount unit currency stock stale}}}",
+        "variables": {"sku": sku}
+    }
+    
+    r_gql = client.post(gql_url, headers=headers, json=payload)
+    if not r_gql.ok:
+        return Observation(store=store, product_id=sku, url=url, name=name, price_cents=None,
+                           currency="USD", notes=[f"graphql returned {r_gql.status_code}"])
+                           
+    try:
+        data = r_gql.json()
+        product = data.get("data", {}).get("product", {})
+        offer = product.get("offer", {})
+        
+        name = product.get("title") or name
+        amount = offer.get("amount")
+        unit = offer.get("unit")
+        currency = offer.get("currency", "USD")
+        stock = offer.get("stock")
+        stale = offer.get("stale")
+        
+        if amount is not None:
+            amount_val = float(amount)
+            price_cents = int(amount_val) if unit == "minor" else int(amount_val * 100)
+        else:
+            price_cents = None
+            
+        avail = "in_stock" if stock == "IN_STOCK" else "out_of_stock"
+        
+        notes = []
+        if stale:
+            notes.append("stale price")
+            
+        pack_match = re.search(r"Pack of (\d+)", name, re.I)
+        pack = int(pack_match.group(1)) if pack_match else 1
+        name_clean = re.sub(r"\s*\(?Pack of \d+\)?", "", name, flags=re.I).strip()
+        
+        return Observation(
+            store=store, product_id=sku, url=url, name=name_clean,
+            price_cents=price_cents, currency=currency, compare_at_cents=None,
+            availability=avail, pack_size=pack,
+            unit_price_cents=unit_price(price_cents, pack) if price_cents is not None else None,
+            notes=notes
+        )
+    except Exception as e:
+        return Observation(store=store, product_id=sku, url=url, name=name, price_cents=None,
+                           currency="USD", notes=[f"error parsing graphql: {e}"])
 
 
 def extract(client: Client, store: str, adapter_name: str, url: str, html: str, **context) -> Observation:

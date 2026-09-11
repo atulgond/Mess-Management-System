@@ -1,0 +1,40 @@
+{
+  "provider": "echo",
+  "model": "unknown",
+  "n": 90,
+  "overall": {
+    "price_exact": 0.0,
+    "currency": 0.0,
+    "availability": 0.0,
+    "pack_size": 0.9
+  },
+  "per_store": {
+    "nordkart": {
+      "price_exact": 0.0,
+      "currency": 0.0,
+      "availability": 0.0,
+      "pack_size": 0.9555555555555556
+    },
+    "bazaario": {
+      "price_exact": 0.0,
+      "currency": 0.0,
+      "availability": 0.0,
+      "pack_size": 0.8444444444444444
+    }
+  },
+  "errors": 0,
+  "error_details": {
+    "timeouts": 0,
+    "exceptions": 0,
+    "json_errors": 0
+  },
+  "cost": 0.0,
+  "latency_ms": {
+    "p50": 0,
+    "p95": 0
+  },
+  "baseline": {
+    "price_exact": 0.0
+  },
+  "elapsed_s": 0.02
+}

@@ -3,3 +3,7 @@ rules:
   # Fire when a product's price drops by at least `pct` percent versus its previous observation.
   - type: drop_pct
     pct: 10
+  # Fire when a product's price drops below the historical median
+  - type: below_median
+    pct: 15
+    window_days: 30

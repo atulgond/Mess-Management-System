@@ -43,13 +43,24 @@ def cmd_extract(a: argparse.Namespace) -> int:
         return 2
     store = store or "unknown"
     client = Client()
-    html = Path(a.html).read_text() if a.html else client.get(a.url).text
-    if a.llm:
-        from .agents.llm_extractor import extract_with_llm
-        from .providers import load_provider
-        obs = extract_with_llm(load_provider(a.provider), store, a.url, html)
-    else:
-        obs = extractor.extract(client, store, cfg["stores"].get(store, {}).get("adapter", store), a.url, html)
+    try:
+        html = Path(a.html).read_text() if a.html else client.get(a.url).text
+        if a.llm:
+            from .agents.llm_extractor import extract_with_llm
+            from .providers import load_provider
+            obs = extract_with_llm(load_provider(a.provider), store, a.url, html)
+        else:
+            obs = extractor.extract(client, store, cfg["stores"].get(store, {}).get("adapter", store), a.url, html)
+    except Exception as e:
+        if a.llm:
+            sku = a.url.rstrip("/").split("/")[-1]
+            obs = Observation(
+                store=store, product_id=sku, url=a.url, name="",
+                price_cents=None, currency="", availability="unknown", source="llm",
+                notes=[f"extraction failed: {type(e).__name__}"]
+            )
+        else:
+            raise
     print(json.dumps(obs.to_dict(), indent=2))
     return 0
 

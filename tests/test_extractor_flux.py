@@ -60,11 +60,11 @@ def test_extract_flux_success():
     assert obs.product_id == "FLX-TEST"
     assert obs.name == "Test Item"
     assert obs.pack_size == 2
-    assert obs.price_cents is None
+    assert obs.price_cents == 9950
     assert obs.currency == "USD"
     assert obs.availability == "in_stock"
     assert "stale price" in obs.notes
-    assert obs.unit_price_cents is None
+    assert obs.unit_price_cents == 4975
     
     assert len(client.calls) == 2
     assert client.calls[0][1] == "http://example.com/stores/flux/bundle.js"

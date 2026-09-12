@@ -252,22 +252,42 @@ def extract_flux(client: Client, store: str, url: str, html: str) -> Observation
     title_el = soup.find("h1")
     name = title_el.get_text(strip=True) if title_el else ""
 
-    salt = _FLUX_SALT_CACHE.get(build_id)
-    if not salt:
+    salt_info = _FLUX_SALT_CACHE.get(build_id)
+    if not salt_info:
         bundle_url = urljoin(url, "/stores/flux/bundle.js")
         r_bundle = client.get(bundle_url)
         if r_bundle.ok:
-            m = re.search(r'=\s*\[(".*?")\]', r_bundle.text)
+            m = re.search(r'=\s*\[(.*?)\]', r_bundle.text)
             if m:
                 parts = re.findall(r'"([^"]+)"', m.group(1))
                 salt = "".join(parts)
-                _FLUX_SALT_CACHE[build_id] = salt
+            else:
+                m2 = re.search(r'=\s*"([^"]+)"', r_bundle.text)
+                salt = m2.group(1) if m2 else None
 
-    if not salt:
+            sep = "|"
+            sep_m = re.search(r'String\.fromCharCode\((\d+)\)', r_bundle.text)
+            if sep_m:
+                sep = chr(int(sep_m.group(1)))
+
+            length = 24
+            slice_var_m = re.search(r'\.slice\(0,\s*([a-zA-Z0-9_]+)\)', r_bundle.text)
+            if slice_var_m:
+                slice_var = slice_var_m.group(1)
+                len_m = re.search(fr'{slice_var}\s*=\s*(\d+)', r_bundle.text)
+                if len_m:
+                    length = int(len_m.group(1))
+
+            if salt:
+                _FLUX_SALT_CACHE[build_id] = (salt, sep, length)
+
+    salt_info = _FLUX_SALT_CACHE.get(build_id)
+    if not salt_info:
         return Observation(store=store, product_id=sku, url=url, name=name, price_cents=None,
                            currency="USD", notes=["failed to extract salt"])
 
-    sig = hashlib.sha256(f"{salt}|{sku}".encode()).hexdigest()[:24]
+    salt, sep, length = salt_info
+    sig = hashlib.sha256(f"{salt}{sep}{sku}".encode()).hexdigest()[:length]
 
     gql_url = urljoin(url, "/stores/flux/api/graphql")
     headers = {
@@ -287,7 +307,7 @@ def extract_flux(client: Client, store: str, url: str, html: str) -> Observation
                            
     try:
         data = r_gql.json()
-        product = data.get("data", {}).get("product", {})
+        product = data.get("data", {}).get("product") or {}
         offer = product.get("offer", {})
         
         name = product.get("title") or name
@@ -297,7 +317,7 @@ def extract_flux(client: Client, store: str, url: str, html: str) -> Observation
         stock = offer.get("stock")
         stale = offer.get("stale")
         
-        if amount is not None and not stale:
+        if amount is not None:
             amount_val = float(amount)
             price_cents = int(amount_val) if str(unit).lower() == "minor" else round(amount_val * 100)
         else:

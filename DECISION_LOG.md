@@ -1,12 +1,12 @@
 ---
 # Machine-read by the autograder. Keep the keys; fill in the values.
-name: "Prakash Kumar"
+name: "Atul Gond"
 median_basis: "observations"        # "observations" or "daily_close" — see README "Alert rules" vs tasks/ISSUE-2.md
 levels_attempted: [1, 2, 3, 4, 5]    # e.g. [1, 2, 3, 4, 5]
 llm_provider: ""        # e.g. "openai", "anthropic", "gemini"
 llm_model: ""
 ai_tools_used: ["Antigravity IDE","ChatGPT"]       # e.g. ["Claude Code", "Cursor", "ChatGPT"]
-hours_spent: 0
+hours_spent: 9
 ---
 
 # Decision log

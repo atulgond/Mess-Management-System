@@ -1,8 +1,0 @@
-# Which storefronts the swarm watches. `base_url` is where pricewatch-stores is running.
-base_url: http://localhost:4000
-stores:
-  corner: { index: /stores/corner/,  adapter: corner }
-  maple:  { index: /stores/maple/,   adapter: maple }
-  zon:    { index: /stores/zon/,     adapter: zon }
-  shield: { index: /stores/shield/,  adapter: shield }
-  flux:   { index: /stores/flux/,    adapter: flux }

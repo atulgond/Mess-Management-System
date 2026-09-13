@@ -1,0 +1,25 @@
+{
+    "name": "mess-portal",
+    "main": "index.js",
+    "scripts": {
+        "postinstall": "cd frontend && npm install --force && npm run build",
+        "start": "node index.js",
+        "test": "cd frontend && npm run build && cd .. && node index.js"
+    },
+    "license": "ISC",
+    "dependencies": {
+        "axios": "^1.12.1",
+        "compression": "^1.7.4",
+        "connect-mongo": "^3.2.0",
+        "cors": "^2.8.5",
+        "dotenv": "^8.2.0",
+        "express": "^4.17.1",
+        "express-session": "^1.17.1",
+        "helmet": "^8.1.0",
+        "mongodb": "3.7",
+        "mongoose": "^5.11.14",
+        "passport": "^0.4.1",
+        "passport-google-oauth20": "^2.0.0",
+        "razorpay": "^2.8.3"
+    }
+}
